@@ -1,5 +1,5 @@
 import time
-
+import torch
 __all__ = ["pb4dl"]
 
 
@@ -33,47 +33,47 @@ def timeToStr(num) -> str:
         return f'{num}s'
 
 
-def progressPrint(numNow: int, numAll: int, needTime, word: str):
+def progressPrint(numNow: int, numAll: int, needTime, word: str, device: str):
     if numNow > numAll:
         raise ValueError("Maximum number exceeded")
     percent = numNow / numAll
     part1 = int(percent * 50)
     part2 = 50 - part1
-    status = "done!\n" if numNow == numAll else "processing..."
+    status = "✔ done!\n" if numNow == numAll else device
 
     print(f"\r {word} [{part1 * '-'}>{part2 * ' '}] {percent * 100:.2f}% | {numNow}/{numAll} | {needTime} | {status}",
           end='')
 
 
 class pb4dl:
-    epoch = 0
+    epoch = {}
 
     def __init__(self, dataloader):
         assert dataloader.__class__.__name__ == "DataLoader", 'the input is not DataLoader class'
+        if dataloader not in pb4dl.epoch:
+            pb4dl.epoch[dataloader] = 0
         self.dataloader = dataloader
+        self.dataloaderIter = iter(dataloader)
         self.size = len(dataloader)
         self.num = 0
         self.startTime = time.time()
-        pb4dl.epoch += 1
-
-    def __iter__(self):
-        return pb4dlIterator(iter(self.dataloader), self)
-
-
-class pb4dlIterator:
-    def __init__(self, dataloader, inputPb4dl):
-        self.dataloader = dataloader
-        self.pb4dl = inputPb4dl
+        self.cuda = torch.cuda.is_available()
+        pb4dl.epoch[dataloader] += 1
 
     def __iter__(self):
         return self
 
     def __next__(self):
-        if self.pb4dl.num != 0:
-            differenceTime = time.time() - self.pb4dl.startTime
-            needTime = differenceTime * self.pb4dl.size / self.pb4dl.num - differenceTime
+        if self.num != 0:
+            differenceTime = time.time() - self.startTime
+            needTime = differenceTime * self.size / self.num - differenceTime
             needTime = timeToStr(needTime)
-            word = f"epoch{pb4dl.epoch}"
-            progressPrint(self.pb4dl.num, self.pb4dl.size, needTime, word)
-        self.pb4dl.num += 1
-        return next(self.dataloader)
+            word = f"epoch{pb4dl.epoch[self.dataloader]}"
+            if self.cuda:
+                device_id = torch.cuda.current_device()
+                device = f"cuda{device_id} : {torch.cuda.memory_reserved(device_id)/(1024 ** 3)}"
+            else:
+                device = "cpu"
+            progressPrint(self.num, self.size, needTime, word,device)
+        self.num += 1
+        return next(self.dataloaderIter)
